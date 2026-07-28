@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D. Shaban - Clinic System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap');
+        body { font-family: 'Tajawal', sans-serif; background-color: #f8fafc; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        .modal-overlay { background-color: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        @media print {
+            body { background-color: white; }
+            header, .no-print { display: none !important; }
+            .print-container { box-shadow: none !important; border: none !important; padding: 0 !important; }
+        }
+    </style>
+</head>
+<body class="text-slate-800">
+
+    <div id="app"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, addDoc, updateDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDiSHQtRHdektoXR-dZzOChj-kfD7dknsI",
+            authDomain: "my-clinic-98b7e.firebaseapp.com",
+            projectId: "my-clinic-98b7e",
+            storageBucket: "my-clinic-98b7e.firebasestorage.app",
+            messagingSenderId: "811746660075",
+            appId: "1:811746660075:web:664963c78f9ee769d938ae"
+        };
+        const appId = 'd-shaban-clinic-app';
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbw0ryScLYYY3FOuI0pIMduw8RQrOE4g91J8-Cc5WmXEVLpa3OIvVbtTrebEqMyFFQARNg/exec";
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        const state = {
+            user: { uid: "local-user" }, connectionError: null, role: null, view: 'roles', 
+            patients: [], selectedPatient: null, searchQuery: '', editMode: '', editReason: '',
+            passwords: {}, authModal: null, settingsModal: false, settingsError: '', settingsSuccess: ''
+        };
+
+        const icons = {
+            doctor: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>`,
+            pharmacist: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>`,
+            nurse: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>`,
+            physio: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`,
+            therapist: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>`,
+            file: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`,
+            back: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>`,
+            download: `<svg class="w-4 h-4 inline-block ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>`,
+            edit: `<svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>`,
+            lock: `<svg class="w-4 h-4 inline-block ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>`,
+            settings: `<svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>`,
+            print: `<svg class="w-4 h-4 inline-block ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>`,
+            camera: `<svg class="w-4 h-4 inline-block ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>`,
+            trash: `<svg class="w-4 h-4 inline-block ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>`
+        };
+
+        const roles = {
+            doctor: { title: 'الطبيب', color: 'blue', icon: icons.doctor },
+            pharmacist: { title: 'الصيدلي', color: 'emerald', icon: icons.pharmacist },
+            nurse: { title: 'الممرض', color: 'orange', icon: icons.nurse },
+            physio: { title: 'المعالج الفيزيائي', color: 'purple', icon: icons.physio },
+            therapist: { title: 'المعالج النفسي', color: 'indigo', icon: icons.therapist }
+        };
+
+        const passRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'passwords');
+        onSnapshot(passRef, (docSnap) => {
+            if(docSnap.exists()){ state.passwords = docSnap.data(); }
+            render();
+        });
+
+        const patientsRef = collection(db, 'artifacts', appId, 'public', 'data', 'patients');
+        onSnapshot(patientsRef, (snapshot) => {
+            const patientsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            patientsData.sort((a, b) => b.createdAt - a.createdAt);
+            state.patients = patientsData;
+            if (state.selectedPatient) { state.selectedPatient = patientsData.find(p => p.id === state.selectedPatient.id); }
+            render();
+        });
+
+        window.handleRoleClick = (roleKey) => {
+            if (!state.passwords[roleKey]) { state.authModal = { roleKey, mode: 'create', error: '' }; } 
+            else { state.authModal = { roleKey, mode: 'login', error: '' }; }
+            render();
+        };
+
+        window.submitRoleAuth = async (e) => {
+            e.preventDefault();
+            const roleKey = state.authModal.roleKey; const mode = state.authModal.mode;
+            if (mode === 'create') {
+                const pwd = document.getElementById('role-pwd').value; const rec = document.getElementById('role-rec').value;
+                if(!rec) { state.authModal.error = 'الرجاء إدخال كلمة بديلة للاسترجاع.'; render(); return; }
+                const newPasswords = { ...state.passwords, [roleKey]: { pwd: pwd, recovery: rec } };
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'passwords'), newPasswords, {merge: true});
+                state.role = roleKey; state.authModal = null; state.view = 'list'; render();
+            } else if (mode === 'login') {
+                const pwd = document.getElementById('role-pwd').value;
+                const storedData = state.passwords[roleKey];
+                const storedPwd = typeof storedData === 'object' ? storedData.pwd : storedData;
+                if (storedPwd === pwd) { state.role = roleKey; state.authModal = null; state.view = 'list'; render(); } 
+                else { state.authModal.error = 'كلمة السر غير صحيحة!'; render(); }
+            } else if (mode === 'recover') {
+                const rec = document.getElementById('role-rec-input').value; const newPwd = document.getElementById('role-new-pwd').value;
+                const storedData = state.passwords[roleKey];
+                if (typeof storedData !== 'object' || !storedData.recovery) { state.authModal.error = 'لم يتم تعيين كلمة استرجاع مسبقاً.'; render(); return; }
+                if (storedData.recovery === rec) {
+                    const newPasswords = { ...state.passwords, [roleKey]: { pwd: newPwd, recovery: storedData.recovery } };
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'passwords'), newPasswords, {merge: true});
+                    state.role = roleKey; state.authModal = null; state.view = 'list'; render();
+                } else { state.authModal.error = 'الكلمة البديلة غير صحيحة!'; render(); }
+            }
+        };
+
+        window.forgotPassword = () => { if(state.authModal) { state.authModal.mode = 'recover'; state.authModal.error = ''; render(); } };
+        window.openSettings = () => { state.settingsModal = true; state.settingsError = ''; state.settingsSuccess = ''; render(); };
+        window.closeSettings = () => { state.settingsModal = false; render(); };
+        window.closeAuthModal = () => { state.authModal = null; render(); };
+        window.goBack = () => { state.view = 'list'; state.selectedPatient = null; state.editMode = ''; state.editReason = ''; render(); };
+        window.openPatient = (id) => { state.selectedPatient = state.patients.find(p => p.id === id); state.view = 'detail'; state.editMode = ''; state.editReason = ''; render(); };
+        window.openNewPatient = () => { state.view = 'new'; render(); };
+        window.setSearch = (val) => { state.searchQuery = val.toLowerCase(); render(); };
+        window.enableEdit = (section) => { state.editMode = section; render(); };
+        window.cancelEdit = () => { state.editMode = ''; state.editReason = ''; render(); };
+        window.goToRoles = () => { state.role = null; state.view = 'roles'; render(); };
+
+        window.printPatientFile = () => { window.print(); };
+
+        window.capturePatientImage = () => {
+            const container = document.getElementById('printable-patient-card');
+            if(!container) return;
+            html2canvas(container, { scale: 2, useCORS: true }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `تقرير_المريض_${state.selectedPatient?.basicInfo?.name || 'ملف'}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            });
+        };
+
+        window.deletePatient = async () => {
+            if (state.role !== 'doctor' || !state.selectedPatient) return;
+            const reason = prompt("الرجاء إدخال سبب حذف/أرشفة ملف المريض (إلزامي):");
+            if (!reason || reason.trim() === "") {
+                alert("يجب كتابة سبب الحذف لتتم العملية.");
+                return;
+            }
+
+            const patientRef = doc(db, 'artifacts', appId, 'public', 'data', 'patients', state.selectedPatient.id);
+            const dateString = new Date().toLocaleString('ar-EG');
+            
+            try {
+                await updateDoc(patientRef, {
+                    isDeleted: true,
+                    deleteReason: reason.trim(),
+                    deletedAt: dateString,
+                    deletedBy: 'الطبيب'
+                });
+                alert("تم أرشفة وحذف ملف المريض بنجاح مع الاحتفاظ بسجل الأسباب.");
+                goBack();
+            } catch (error) {
+                alert("حدث خطأ أثناء عملية الحذف.");
+            }
+        };
+
+        window.saveSettings = async (e) => {
+            e.preventDefault();
+            const roleKey = state.role;
+            const currentPwd = document.getElementById('set-curr-pwd').value; const newPwd = document.getElementById('set-new-pwd').value; const newRec = document.getElementById('set-new-rec').value;
+            const storedData = state.passwords[roleKey] || {}; const storedPwd = typeof storedData === 'object' ? storedData.pwd : storedData;
+            
+            if (currentPwd !== storedPwd) { state.settingsError = 'كلمة السر الحالية غير صحيحة.'; state.settingsSuccess = ''; render(); return; }
+            const updatedPwd = newPwd || storedPwd; const updatedRec = newRec || (typeof storedData === 'object' ? storedData.recovery : '');
+            const newPasswords = { ...state.passwords, [roleKey]: { pwd: updatedPwd, recovery: updatedRec } };
+            
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'passwords'), newPasswords, {merge: true});
+                state.settingsSuccess = 'تم حفظ الإعدادات بنجاح!'; state.settingsError = '';
+                setTimeout(() => { closeSettings(); }, 1500);
+            } catch (error) { state.settingsError = 'حدث خطأ أثناء الحفظ.'; }
+            render();
+        };
+
+        window.addSection = async (sectionKey) => {
+            if (!sectionKey || state.role !== 'doctor' || !state.selectedPatient) return;
+            const patientRef = doc(db, 'artifacts', appId, 'public', 'data', 'patients', state.selectedPatient.id);
+            const currentSections = state.selectedPatient.activeSections || ['pharmacist', 'nurse'];
+            if (!currentSections.includes(sectionKey)) {
+                try { await updateDoc(patientRef, { activeSections: [...currentSections, sectionKey] }); } 
+                catch (error) { alert("حدث خطأ أثناء إضافة القسم"); }
+            }
+        };
+
+        window.saveNewPatient = async (e) => {
+            e.preventDefault();
+            if (state.role !== 'doctor') return;
+            const btn = document.getElementById('btn-save-new');
+            btn.innerHTML = 'جاري الحفظ...'; btn.disabled = true;
+
+            const newPatient = {
+                basicInfo: {
+                    name: document.getElementById('p-name').value, age: document.getElementById('p-age').value,
+                    gender: document.getElementById('p-gender').value, phone: document.getElementById('p-phone').value,
+                    history: document.getElementById('p-history').value
+                },
+                doctorSection: {
+                    symptoms: document.getElementById('d-symptoms').value, diagnosis: document.getElementById('d-diagnosis').value,
+                    prescription: document.getElementById('d-prescription').value, notes: document.getElementById('d-notes').value,
+                    lastUpdated: Date.now(), editHistory: []
+                },
+                pharmacistSection: null, nurseSection: null, physioSection: null, therapistSection: null,
+                activeSections: ['pharmacist', 'nurse'], isDeleted: false, createdAt: Date.now(), createdBy: 'web-user'
+            };
+
+            try {
+                const patientsRef = collection(db, 'artifacts', appId, 'public', 'data', 'patients');
+                await addDoc(patientsRef, newPatient);
+                state.view = 'list'; render();
+            } catch (error) {
+                alert("حدث خطأ أثناء الحفظ");
+                btn.innerHTML = 'إرسال البيانات'; btn.disabled = false;
+            }
+        };
+
+        window.updateSection = async (e, sectionName) => {
+            e.preventDefault();
+            if (!state.selectedPatient) return;
+
+            const patientRef = doc(db, 'artifacts', appId, 'public', 'data', 'patients', state.selectedPatient.id);
+            const updateData = {}; const timestamp = Date.now(); const dateString = new Date().toLocaleString('ar-EG');
+            const reasonInput = document.getElementById('edit-reason'); const editReasonTxt = reasonInput ? reasonInput.value : '';
+            const currentHistory = state.selectedPatient[sectionName]?.editHistory || [];
+            if (state.editMode && editReasonTxt) currentHistory.push({ date: dateString, reason: editReasonTxt });
+
+            if (sectionName === 'doctorSection') {
+                updateData.doctorSection = { symptoms: document.getElementById('u-symptoms').value, diagnosis: document.getElementById('u-diagnosis').value, prescription: document.getElementById('u-prescription').value, notes: state.selectedPatient.doctorSection?.notes || '', lastUpdated: timestamp, editHistory: currentHistory };
+            } else if (sectionName === 'pharmacistSection') {
+                updateData.pharmacistSection = { dispensedMeds: document.getElementById('u-meds').value, instructions: document.getElementById('u-instructions').value, lastUpdated: timestamp, editHistory: currentHistory };
+            } else if (sectionName === 'nurseSection') {
+                updateData.nurseSection = { procedures: document.getElementById('u-procedures').value, vitals: document.getElementById('u-vitals').value, lastUpdated: timestamp, editHistory: currentHistory };
+            } else if (sectionName === 'physioSection') {
+                updateData.physioSection = { plan: document.getElementById('u-plan').value, sessions: document.getElementById('u-sessions').value, lastUpdated: timestamp, editHistory: currentHistory };
+            } else if (sectionName === 'therapistSection') {
+                updateData.therapistSection = { evaluation: document.getElementById('u-evaluation').value, recommendations: document.getElementById('u-recommendations').value, lastUpdated: timestamp, editHistory: currentHistory };
+            }
+
+            try {
+                await updateDoc(patientRef, updateData);
+                state.editMode = ''; state.editReason = '';
+            } catch (error) { alert("حدث خطأ أثناء التحديث"); }
+        };
+
+        window.exportData = () => {
+            const activePatients = state.patients.filter(p => !p.isDeleted);
+            const headers = ["تاريخ الإضافة", "اسم المريض", "العمر", "الهاتف", "تاريخ مرضي", "أعراض", "تشخيص", "وصفة", "أدوية مصروفة", "تعليمات صيدلي", "إجراء تمريضي", "علامات حيوية", "خطة علاج فيزيائي", "جلسات فيزيائية", "تقييم نفسي", "توصيات نفسية"];
+            const csvData = activePatients.map(p => {
+                const date = new Date(p.createdAt).toLocaleDateString('ar-EG');
+                return [ date, p.basicInfo?.name || '', p.basicInfo?.age || '', p.basicInfo?.phone || '', p.basicInfo?.history || '', p.doctorSection?.symptoms || '', p.doctorSection?.diagnosis || '', p.doctorSection?.prescription || '', p.pharmacistSection?.dispensedMeds || '', p.pharmacistSection?.instructions || '', p.nurseSection?.procedures || '', p.nurseSection?.vitals || '', p.physioSection?.plan || '', p.physioSection?.sessions || '', p.therapistSection?.evaluation || '', p.therapistSection?.recommendations || ''].map(field => `"${String(field).replace(/"/g, '""')}"`).join(',');
+            });
+            const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(','), ...csvData].join('\n');
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri); link.setAttribute("download", `مرضى_د_شعبان.csv`);
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        };
+
+        function render() {
+            const appDiv = document.getElementById('app');
+            if (state.view === 'roles') { appDiv.innerHTML = renderRoleSelection(); return; }
+            let mainContent = '';
+            if (state.view === 'list') mainContent = renderList();
+            else if (state.view === 'new') mainContent = renderNewPatient();
+            else if (state.view === 'detail') mainContent = renderDetail();
+
+            appDiv.innerHTML = `
+                <header class="bg-slate-800 text-white shadow-md sticky top-0 z-10 no-print">
+                    <div class="max-w-md md:max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+                        <div class="flex items-center gap-2"><span class="bg-teal-500 p-1.5 rounded-lg text-white">D.S</span><h1 class="text-xl font-bold tracking-wider">عيادة د. شعبان</h1></div>
+                        <div class="flex items-center gap-3 sm:gap-4">
+                            <span class="hidden sm:flex text-sm px-3 py-1 rounded-full bg-${roles[state.role].color}-500/20 text-${roles[state.role].color}-300 border border-${roles[state.role].color}-500/30 items-center gap-1">${roles[state.role].icon} ${roles[state.role].title}</span>
+                            <button onclick="openSettings()" class="text-xs text-slate-300 hover:text-white flex items-center gap-1 bg-slate-700 p-1.5 sm:px-3 sm:py-1.5 rounded-lg transition" title="إعدادات القسم">${icons.settings} <span class="hidden sm:inline">إعدادات</span></button>
+                            <button onclick="goToRoles()" class="text-xs text-slate-300 hover:text-white flex items-center gap-1 bg-slate-700 p-1.5 sm:px-3 sm:py-1.5 rounded-lg transition" title="تسجيل الخروج">${icons.back} <span class="hidden sm:inline">خروج</span></button>
+                        </div>
+                    </div>
+                </header>
+                <main class="max-w-md md:max-w-4xl mx-auto px-4 py-6 pb-24 fade-in">${mainContent}</main>
+                ${state.settingsModal ? renderSettingsModal() : ''}
+            `;
+        }
+
+        function renderRoleSelection() {
+            let modalHtml = '';
+            if (state.authModal) {
+                const rKey = state.authModal.roleKey; const mode = state.authModal.mode;
+                let modalTitle = '', modalDesc = '', formHtml = '';
+                if (mode === 'create') {
+                    modalTitle = 'إعداد قفل القسم'; modalDesc = 'قم بتعيين كلمة سر، وكلمة بديلة للاسترجاع.';
+                    formHtml = `<div><input type="password" id="role-pwd" required placeholder="كلمة السر الجديدة..." class="w-full text-center tracking-widest text-lg p-3 border-2 border-slate-200 rounded-xl focus:border-${roles[rKey].color}-500 focus:outline-none transition mb-3"></div><div><input type="text" id="role-rec" required placeholder="كلمة بديلة (مثال: اسم صديق، لون)..." class="w-full text-center text-sm p-3 border-2 border-slate-200 rounded-xl focus:border-${roles[rKey].color}-500 focus:outline-none transition"></div>${state.authModal.error ? `<p class="text-red-500 text-sm text-center font-bold mt-2">${state.authModal.error}</p>` : ''}<div class="flex gap-2 mt-4"><button type="submit" class="flex-1 bg-${roles[rKey].color}-600 text-white font-bold py-3 rounded-xl shadow-md hover:bg-${roles[rKey].color}-700 transition">حفظ ودخول</button><button type="button" onclick="closeAuthModal()" class="px-4 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition">إلغاء</button></div>`;
+                } else if (mode === 'login') {
+                    modalTitle = `قسم ${roles[rKey].title}`; modalDesc = 'الرجاء إدخال كلمة السر الخاصة بالقسم للدخول.';
+                    formHtml = `<div><input type="password" id="role-pwd" required placeholder="كلمة السر..." class="w-full text-center tracking-widest text-lg p-3 border-2 border-slate-200 rounded-xl focus:border-${roles[rKey].color}-500 focus:outline-none transition"></div>${state.authModal.error ? `<p class="text-red-500 text-sm text-center font-bold mt-2">${state.authModal.error}</p>` : ''}<div class="flex gap-2 mt-4"><button type="submit" class="flex-1 bg-${roles[rKey].color}-600 text-white font-bold py-3 rounded-xl shadow-md hover:bg-${roles[rKey].color}-700 transition">دخول</button><button type="button" onclick="closeAuthModal()" class="px-4 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition">إلغاء</button></div><div class="text-center mt-3"><button type="button" onclick="forgotPassword()" class="text-sm text-${roles[rKey].color}-600 underline hover:text-${roles[rKey].color}-800">نسيت كلمة السر؟</button></div>`;
+                } else if (mode === 'recover') {
+                    modalTitle = 'استرجاع كلمة السر'; modalDesc = 'أدخل الكلمة البديلة لتعيين كلمة سر جديدة.';
+                    formHtml = `<div><input type="text" id="role-rec-input" required placeholder="الكلمة البديلة..." class="w-full text-center text-sm p-3 border-2 border-slate-200 rounded-xl focus:border-${roles[rKey].color}-500 focus:outline-none transition mb-3"></div><div><input type="password" id="role-new-pwd" required placeholder="كلمة السر الجديدة..." class="w-full text-center tracking-widest text-lg p-3 border-2 border-slate-200 rounded-xl focus:border-${roles[rKey].color}-500 focus:outline-none transition"></div>${state.authModal.error ? `<p class="text-red-500 text-sm text-center font-bold mt-2">${state.authModal.error}</p>` : ''}<div class="flex gap-2 mt-4"><button type="submit" class="flex-1 bg-${roles[rKey].color}-600 text-white font-bold py-3 rounded-xl shadow-md hover:bg-${roles[rKey].color}-700 transition">تحديث ودخول</button><button type="button" onclick="closeAuthModal()" class="px-4 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition">إلغاء</button></div>`;
+                }
+                modalHtml = `<div class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay fade-in"><div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm text-slate-800 relative"><div class="text-center mb-6"><div class="w-16 h-16 bg-${roles[rKey].color}-100 text-${roles[rKey].color}-600 rounded-full flex items-center justify-center mx-auto mb-3">${icons.lock}</div><h2 class="text-xl font-bold">${modalTitle}</h2><p class="text-sm text-slate-500 mt-1">${modalDesc}</p></div><form onsubmit="submitRoleAuth(event)">${formHtml}</form></div></div>`;
+            }
+            return `<div class="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-white fade-in relative">${modalHtml}<div class="mb-8 text-center"><h1 class="text-3xl font-bold text-teal-400 mb-2">نظام إدارة العيادة</h1><p class="text-slate-400">د. شعبان - نظام محمي بالكامل | Clinic Management System</p></div><div class="w-full max-w-sm space-y-4"><p class="text-center text-sm mb-4 text-slate-300">الرجاء اختيار التخصص للدخول:</p>${Object.keys(roles).map(key => `<button onclick="handleRoleClick('${key}')" class="w-full flex items-center gap-4 p-4 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-${roles[key].color}-500 transition shadow-lg relative overflow-hidden"><div class="bg-${roles[key].color}-500/20 p-3 rounded-lg text-${roles[key].color}-400">${roles[key].icon}</div><span class="font-bold text-lg flex-1 text-right">${roles[key].title}</span>${state.passwords[key] ? `<span class="text-slate-500" title="محمي بكلمة سر">${icons.lock}</span>` : `<span class="text-slate-500 text-xs">إعداد قفل</span>`}</button>`).join('')}</div></div>`;
+        }
+
+        function renderList() {
+            const activePatients = state.patients.filter(p => !p.isDeleted);
+            const filtered = activePatients.filter(p => p.basicInfo?.name.toLowerCase().includes(state.searchQuery) || p.basicInfo?.phone.includes(state.searchQuery));
+            return `<div class="space-y-4"><div class="flex gap-2"><input type="text" placeholder="ابحث باسم المريض أو الهاتف..." class="flex-1 p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-teal-500 shadow-sm" value="${state.searchQuery}" onkeyup="setSearch(this.value)">${state.role === 'doctor' ? `<button onclick="openNewPatient()" class="bg-teal-600 text-white p-3 rounded-xl shadow-sm hover:bg-teal-700 flex items-center justify-center w-14 shrink-0"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg></button>` : ''}</div>${state.role === 'doctor' && activePatients.length > 0 ? `<div class="flex justify-end"><button onclick="exportData()" class="text-sm text-slate-500 hover:text-teal-600 flex items-center">تحميل السجل (Excel) ${icons.download}</button></div>` : ''}<div class="grid gap-3 mt-4">${filtered.length === 0 ? `<div class="text-center py-10 text-slate-400">لا يوجد بيانات.</div>` : filtered.map(p => `<div onclick="openPatient('${p.id}')" class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 hover:shadow-md cursor-pointer flex justify-between items-center transition"><div><h3 class="font-bold text-slate-800 text-lg">${p.basicInfo.name}</h3><p class="text-sm text-slate-500 mt-1">${p.basicInfo.phone} • ${p.basicInfo.age} سنة</p></div><div class="flex flex-col gap-1 items-end"><div class="flex gap-1.5"><div class="w-2.5 h-2.5 rounded-full ${p.doctorSection ? 'bg-blue-500' : 'bg-slate-200'}" title="طبيب"></div><div class="w-2.5 h-2.5 rounded-full ${p.pharmacistSection ? 'bg-emerald-500' : 'bg-slate-200'}" title="صيدلية"></div><div class="w-2.5 h-2.5 rounded-full ${p.nurseSection ? 'bg-orange-500' : 'bg-slate-200'}" title="تمريض"></div>${p.activeSections?.includes('physio') ? `<div class="w-2.5 h-2.5 rounded-full ${p.physioSection ? 'bg-purple-500' : 'bg-purple-200'}" title="علاج فيزيائي"></div>` : ''}${p.activeSections?.includes('therapist') ? `<div class="w-2.5 h-2.5 rounded-full ${p.therapistSection ? 'bg-indigo-500' : 'bg-indigo-200'}" title="علاج نفسي"></div>` : ''}</div><span class="text-[10px] text-slate-400 mt-1">${new Date(p.createdAt).toLocaleDateString('ar-EG')}</span></div></div>`).join('')}</div></div>`;
+        }
+
+        function renderNewPatient() {
+            return `<div class="mb-4"><button onclick="goBack()" class="text-slate-500 hover:text-slate-800 flex items-center gap-1">${icons.back} عودة</button></div><form onsubmit="saveNewPatient(event)" class="space-y-6 bg-white p-5 rounded-2xl shadow-sm border border-slate-200"><h2 class="text-xl font-bold text-teal-700 mb-4 flex items-center gap-2">${icons.file} بيانات المريض والفحص</h2><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label class="block text-sm mb-1 text-slate-600">اسم المريض *</label><input required id="p-name" type="text" class="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none"></div><div><label class="block text-sm mb-1 text-slate-600">رقم الهاتف *</label><input required id="p-phone" type="tel" class="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none"></div><div><label class="block text-sm mb-1 text-slate-600">العمر *</label><input required id="p-age" type="number" class="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none"></div><div><label class="block text-sm mb-1 text-slate-600">الجنس</label><select id="p-gender" class="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none"><option value="ذكر">ذكر</option><option value="أنثى">أنثى</option></select></div><div class="md:col-span-2"><label class="block text-sm mb-1 text-slate-600">تاريخ مرضي (حساسية، أمراض مزمنة)</label><textarea id="p-history" rows="2" class="w-full p-2.5 border rounded-xl bg-slate-50 focus:bg-white outline-none"></textarea></div></div><div class="border-t border-slate-100 pt-4 mt-4 space-y-4"><h3 class="font-bold text-blue-700 flex items-center gap-2">${icons.doctor} الفحص الحالي</h3><div><label class="block text-sm mb-1 text-slate-600">الأعراض *</label><textarea required id="d-symptoms" rows="2" class="w-full p-2.5 border border-blue-100 rounded-xl bg-blue-50/50 outline-none focus:ring-2 focus:ring-blue-400"></textarea></div><div><label class="block text-sm mb-1 text-slate-600">التشخيص *</label><input required id="d-diagnosis" type="text" class="w-full p-2.5 border border-blue-100 rounded-xl bg-blue-50/50 outline-none focus:ring-2 focus:ring-blue-400"></div><div><label class="block text-sm mb-1 text-slate-600">الوصفة الطبية (ترسل للصيدلي) *</label><textarea required id="d-prescription" rows="3" class="w-full p-2.5 border border-blue-100 rounded-xl bg-blue-50/50 outline-none focus:ring-2 focus:ring-blue-400"></textarea></div><div><label class="block text-sm mb-1 text-slate-600">ملاحظات داخلية</label><input id="d-notes" type="text" class="w-full p-2.5 border border-blue-100 rounded-xl bg-blue-50/50 outline-none focus:ring-2 focus:ring-blue-400"></div></div><button id="btn-save-new" type="submit" class="w-full bg-teal-600 text-white font-bold py-3.5 rounded-xl hover:bg-teal-700 shadow-md">إرسال البيانات وحفظ الملف</button></form>`;
+        }
+
+        function renderDetail() {
+            const p = state.selectedPatient; if(!p) return '';
+            const activeSecs = p.activeSections || ['pharmacist', 'nurse'];
+            const availableToAdd = [{ key: 'physio', title: 'العلاج الفيزيائي' }, { key: 'therapist', title: 'العلاج النفسي' }].filter(s => !activeSecs.includes(s.key));
+            const renderSection = (config) => {
+                const { key, title, color, icon, roleMatch, data, renderForm, renderView } = config;
+                const isMyRole = state.role === roleMatch; const hasData = !!data; const isEditing = state.editMode === key;
+                let content = '';
+                if (isMyRole && (!hasData || isEditing)) {
+                    content = `<form onsubmit="updateSection(event, '${key}')" class="space-y-3 mt-3">${renderForm()}${isEditing ? `<div class="mt-2"><label class="block text-sm font-bold text-red-600 mb-1">سبب التعديل (إلزامي ليراه الجميع)</label><input required id="edit-reason" type="text" placeholder="مثال: تغيير الجرعة بناء على طلب المريض" class="w-full p-2 border border-red-300 rounded-lg focus:ring-1 focus:ring-red-500 outline-none"></div>` : ''}<div class="flex gap-2 pt-2"><button type="submit" class="bg-${color}-600 text-white px-4 py-2 rounded-lg text-sm flex-1 font-bold shadow-sm">${isEditing ? 'حفظ التعديلات' : 'إرسال التقرير'}</button>${isEditing ? `<button type="button" onclick="cancelEdit()" class="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm">إلغاء</button>` : ''}</div></form>`;
+                } else if (hasData) {
+                    content = `<div class="mt-3 space-y-2 text-sm">${renderView()}${data.editHistory && data.editHistory.length > 0 ? `<div class="mt-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs"><strong class="text-amber-800 block mb-1">سجل التعديلات السابقة:</strong><ul class="list-disc list-inside text-amber-700 space-y-1">${data.editHistory.map(h => `<li>[${h.date}] ${h.reason}</li>`).join('')}</ul></div>` : ''}</div>`;
+                } else {
+                    content = `<p class="text-sm text-slate-400 italic mt-3">بانتظار إدخال البيانات من ${title}...</p>`;
+                }
+                return `<div class="p-4 rounded-xl shadow-sm border border-${color}-200 bg-${color}-50/30"><div class="flex justify-between items-center"><h3 class="font-bold text-${color}-800 flex items-center gap-2">${icon} قسم ${title}</h3>${isMyRole && hasData && !isEditing ? `<button onclick="enableEdit('${key}')" class="text-xs text-${color}-600 bg-${color}-100 px-2 py-1 rounded hover:bg-${color}-200 no-print">${icons.edit} تعديل</button>` : ''}</div>${content}</div>`;
+            };
+            return `
+                <div class="flex justify-between items-center mb-4 no-print">
+                    <button onclick="goBack()" class="text-slate-500 hover:text-slate-800 flex items-center gap-1">${icons.back} عودة للقائمة</button>
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="printPatientFile()" class="bg-slate-800 text-white px-3 py-2 rounded-xl text-sm flex items-center gap-1 shadow-sm hover:bg-slate-700">${icons.print} طباعة</button>
+                        <button onclick="capturePatientImage()" class="bg-teal-600 text-white px-3 py-2 rounded-xl text-sm flex items-center gap-1 shadow-sm hover:bg-teal-700">${icons.camera} صورة</button>
+                        ${state.role === 'doctor' ? `<button onclick="deletePatient()" class="bg-red-600 text-white px-3 py-2 rounded-xl text-sm flex items-center gap-1 shadow-sm hover:bg-red-700">${icons.trash} حذف المريض</button>` : ''}
+                    </div>
+                </div>
+                <div id="printable-patient-card" class="space-y-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 print-container">
+                    <div class="border-b pb-3 mb-4 flex justify-between items-center">
+                        <div>
+                            <h2 class="text-xl font-bold text-slate-800">${p.basicInfo.name}</h2>
+                            <p class="text-xs text-slate-400 mt-0.5">تاريخ الملف: ${new Date(p.createdAt).toLocaleDateString('ar-EG')}</p>
+                        </div>
+                        <div class="text-left hidden print:block"><span class="text-xs font-bold text-teal-700">عيادة د. شعبان</span></div>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                            <div><span class="text-slate-400 block text-xs">العمر</span><span class="font-medium">${p.basicInfo.age}</span></div>
+                            <div><span class="text-slate-400 block text-xs">الجنس</span><span class="font-medium">${p.basicInfo.gender}</span></div>
+                            <div><span class="text-slate-400 block text-xs">الهاتف</span><span class="font-medium">${p.basicInfo.phone}</span></div>
+                            <div class="col-span-2 md:col-span-4"><span class="text-slate-400 block text-xs">التاريخ المرضي</span><span class="font-medium">${p.basicInfo.history || 'لا يوجد'}</span></div>
+                        </div>
+                    </div>
+                    ${p.isDeleted ? `<div class="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700"><strong>ملاحظة إدارية:</strong> تم حذف/أرشفة هذا الملف بواسطة (${p.deletedBy}) بتاريخ [${p.deletedAt}]. <br><strong>السبب:</strong> ${p.deleteReason}</div>` : ''}
+                    ${renderSection({ key: 'doctorSection', title: 'الطبيب', color: 'blue', icon: icons.doctor, roleMatch: 'doctor', data: p.doctorSection, renderForm: () => `<div><label class="block text-xs mb-1 text-slate-600">الأعراض</label><textarea id="u-symptoms" rows="2" class="w-full p-2 border rounded-lg">${p.doctorSection?.symptoms || ''}</textarea></div><div><label class="block text-xs mb-1 text-slate-600">التشخيص</label><input id="u-diagnosis" type="text" class="w-full p-2 border rounded-lg" value="${p.doctorSection?.diagnosis || ''}"></div><div><label class="block text-xs mb-1 text-slate-600">الوصفة</label><textarea id="u-prescription" rows="2" class="w-full p-2 border rounded-lg">${p.doctorSection?.prescription || ''}</textarea></div>`, renderView: () => `<p><span class="text-slate-500 block text-xs">الأعراض:</span> <span class="font-medium text-slate-800">${p.doctorSection.symptoms}</span></p><p><span class="text-slate-500 block text-xs">التشخيص:</span> <span class="font-medium text-slate-800">${p.doctorSection.diagnosis}</span></p><p><span class="text-slate-500 block text-xs">الوصفة:</span> <span class="font-medium text-slate-800 whitespace-pre-wrap">${p.doctorSection.prescription}</span></p>` })}
+                    ${activeSecs.includes('pharmacist') ? renderSection({ key: 'pharmacistSection', title: 'الصيدلية', color: 'emerald', icon: icons.pharmacist, roleMatch: 'pharmacist', data: p.pharmacistSection, renderForm: () => `<div><label class="block text-xs mb-1 text-slate-600">الأدوية المصروفة فعلياً</label><textarea required id="u-meds" rows="2" class="w-full p-2 border border-emerald-200 rounded-lg focus:ring-emerald-400">${p.pharmacistSection?.dispensedMeds || p.doctorSection?.prescription || ''}</textarea></div><div><label class="block text-xs mb-1 text-slate-600">إرشادات الاستخدام للمريض</label><textarea id="u-instructions" rows="2" class="w-full p-2 border border-emerald-200 rounded-lg focus:ring-emerald-400">${p.pharmacistSection?.instructions || ''}</textarea></div>`, renderView: () => `<p><span class="text-slate-500 block text-xs">الأدوية المصروفة:</span> <span class="font-medium text-slate-800">${p.pharmacistSection.dispensedMeds}</span></p><p><span class="text-slate-500 block text-xs">التعليمات:</span> <span class="font-medium text-slate-800">${p.pharmacistSection.instructions || '-'}</span></p>` }) : ''}
+                    ${activeSecs.includes('nurse') ? renderSection({ key: 'nurseSection', title: 'التمريض', color: 'orange', icon: icons.nurse, roleMatch: 'nurse', data: p.nurseSection, renderForm: () => `<div><label class="block text-xs mb-1 text-slate-600">الإجراءات التمريضية</label><textarea required id="u-procedures" rows="2" class="w-full p-2 border border-orange-200 rounded-lg">${p.nurseSection?.procedures || ''}</textarea></div><div><label class="block text-xs mb-1 text-slate-600">العلامات الحيوية</label><input id="u-vitals" type="text" class="w-full p-2 border border-orange-200 rounded-lg" value="${p.nurseSection?.vitals || ''}"></div>`, renderView: () => `<p><span class="text-slate-500 block text-xs">الإجراءات المتخذة:</span> <span class="font-medium text-slate-800">${p.nurseSection.procedures}</span></p><p><span class="text-slate-500 block text-xs">العلامات الحيوية:</span> <span class="font-medium text-slate-800">${p.nurseSection.vitals || '-'}</span></p>` }) : ''}
+                    ${activeSecs.includes('physio') ? renderSection({ key: 'physioSection', title: 'العلاج الفيزيائي', color: 'purple', icon: icons.physio, roleMatch: 'physio', data: p.physioSection, renderForm: () => `<div><label class="block text-xs mb-1 text-slate-600">خطة العلاج والتمارين</label><textarea required id="u-plan" rows="2" class="w-full p-2 border border-purple-200 rounded-lg">${p.physioSection?.plan || ''}</textarea></div><div><label class="block text-xs mb-1 text-slate-600">عدد الجلسات المقررة / المنفذة</label><input id="u-sessions" type="text" placeholder="مثال: 1 من أصل 5 جلسات" class="w-full p-2 border border-purple-200 rounded-lg" value="${p.physioSection?.sessions || ''}"></div>`, renderView: () => `<p><span class="text-slate-500 block text-xs">خطة العلاج:</span> <span class="font-medium text-slate-800">${p.physioSection.plan}</span></p><p><span class="text-slate-500 block text-xs">الجلسات:</span> <span class="font-medium text-slate-800">${p.physioSection.sessions || '-'}</span></p>` }) : ''}
+                    ${activeSecs.includes('therapist') ? renderSection({ key: 'therapistSection', title: 'العلاج النفسي', color: 'indigo', icon: icons.therapist, roleMatch: 'therapist', data: p.therapistSection, renderForm: () => `<div><label class="block text-xs mb-1 text-slate-600">التقييم النفسي</label><textarea required id="u-evaluation" rows="2" class="w-full p-2 border border-indigo-200 rounded-lg">${p.therapistSection?.evaluation || ''}</textarea></div><div><label class="block text-xs mb-1 text-slate-600">التوصيات والجلسات</label><textarea id="u-recommendations" rows="2" class="w-full p-2 border border-indigo-200 rounded-lg">${p.therapistSection?.recommendations || ''}</textarea></div>`, renderView: () => `<p><span class="text-slate-500 block text-xs">التقييم النفسي:</span> <span class="font-medium text-slate-800">${p.therapistSection.evaluation}</span></p><p><span class="text-slate-500 block text-xs">التوصيات:</span> <span class="font-medium text-slate-800">${p.therapistSection.recommendations || '-'}</span></p>` }) : ''}
+                    ${state.role === 'doctor' && availableToAdd.length > 0 ? `<div class="mt-4 p-4 bg-slate-100 border border-slate-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-inner no-print"><span class="text-sm font-bold text-slate-700 flex items-center gap-2"><svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg> تحويل المريض لقسم آخر:</span><div class="flex gap-2 w-full sm:w-auto"><select id="new-section-select" class="flex-1 sm:w-48 p-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"><option value="">-- اختر القسم --</option>${availableToAdd.map(s => `<option value="${s.key}">${s.title}</option>`).join('')}</select><button onclick="addSection(document.getElementById('new-section-select').value)" class="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition shrink-0">إضافة القسم</button></div></div>` : ''}
+                </div>`;
+        }
+
+        function renderSettingsModal() {
+            const rKey = state.role; const rColor = roles[rKey].color;
+            return `<div class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay fade-in"><div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md text-slate-800 relative"><div class="flex items-center gap-2 mb-4 border-b pb-3 border-slate-100"><div class="p-2 bg-${rColor}-100 text-${rColor}-600 rounded-lg">${icons.settings}</div><h2 class="text-xl font-bold">إعدادات قسم ${roles[rKey].title}</h2></div><form onsubmit="saveSettings(event)" class="space-y-4"><div class="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4"><div><label class="block text-xs font-bold text-slate-600 mb-1">كلمة السر الحالية (إجباري للتأكيد)</label><input type="password" id="set-curr-pwd" required class="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:border-${rColor}-500 focus:ring-1 focus:ring-${rColor}-500" placeholder="تأكيد الهوية..."></div><div class="border-t border-slate-200 pt-3"><label class="block text-xs font-bold text-slate-600 mb-1">تغيير كلمة السر (اختياري)</label><input type="password" id="set-new-pwd" class="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:border-${rColor}-500 focus:ring-1 focus:ring-${rColor}-500" placeholder="اتركه فارغاً إذا لم ترد تغييره"></div><div><label class="block text-xs font-bold text-slate-600 mb-1">تغيير الكلمة البديلة للاسترجاع (اختياري)</label><input type="text" id="set-new-rec" class="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:border-${rColor}-500 focus:ring-1 focus:ring-${rColor}-500" placeholder="اتركه فارغاً إذا لم ترد تغييره"></div></div>${state.settingsError ? `<p class="text-red-500 text-sm text-center font-bold bg-red-50 p-2 rounded">${state.settingsError}</p>` : ''}${state.settingsSuccess ? `<p class="text-emerald-600 text-sm text-center font-bold bg-emerald-50 p-2 rounded">${state.settingsSuccess}</p>` : ''}<div class="flex gap-2 mt-4 pt-2"><button type="submit" class="flex-1 bg-${rColor}-600 text-white font-bold py-3 rounded-xl shadow-sm hover:bg-${rColor}-700 transition">حفظ التغييرات</button><button type="button" onclick="closeSettings()" class="px-4 bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 transition font-bold">إغلاق</button></div></form></div></div>`;
+        }
+    </script>
+</body>
+</html>
